@@ -16,9 +16,9 @@ sys.stdout.flush()
 s3fs.S3FileSystem.read_timeout = 5184000  # one day
 s3fs.S3FileSystem.connect_timeout = 5184000  # one day
 try:
-    #file = './data/OneHotEncodedDataset.csv'                     # This line to read from local disk
-    file = 's3://w210policedata/datasets/OneHotEncodedDataset.csv'  # This line to read from S3
-    training_data = pd.read_csv(file,sep=',', error_bad_lines=False, dtype='unicode')
+    #file = './data/OneHotEncodedDataset.parquet'                     # This line to read from local disk
+    file = 's3://w210policedata/datasets/OneHotEncodedDataset.parquet'  # This line to read from S3
+    training_data = pd.read_parquet(file,sep=',', error_bad_lines=False, dtype='unicode')
 except Exception as e:
     print('[' + str(datetime.now()) + '] Error reading input dataset: '+file)
     print('[' + str(datetime.now()) + '] Error message: '+str(e))
@@ -77,7 +77,7 @@ df_X = training_data.iloc[:,1:]
 
 ### LINES BELOW FOR XGBREGRESSOR MODEL
 train_X, val_X, train_y, val_y = train_test_split(df_X, df_Y, test_size = 0.20)
-model = XGBRegressor()
+model = XGBRegressor(n_jobs=6)
 model.fit(train_X,train_y , verbose=True)
 print('[' + str(datetime.now()) + '] Training complete!')
 sys.stdout.flush()
