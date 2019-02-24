@@ -18,7 +18,8 @@ s3fs.S3FileSystem.connect_timeout = 5184000  # one day
 try:
     #file = './data/OneHotEncodedDataset.parquet'                     # This line to read from local disk
     file = 's3://w210policedata/datasets/OneHotEncodedDataset.parquet'  # This line to read from S3
-    training_data = pd.read_parquet(file,sep=',', error_bad_lines=False, dtype='unicode')
+    #training_data = pd.read_csv(file,sep=',', error_bad_lines=False, dtype='unicode')
+    training_data = pd.read_parquet(file)
 except Exception as e:
     print('[' + str(datetime.now()) + '] Error reading input dataset: '+file)
     print('[' + str(datetime.now()) + '] Error message: '+str(e))
