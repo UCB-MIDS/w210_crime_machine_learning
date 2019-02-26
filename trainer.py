@@ -3,6 +3,7 @@ import pandas as pd
 import s3fs
 import sys
 import os
+import tempfile
 from datetime import datetime
 from keras.models import Sequential
 from keras.layers import Dense
@@ -63,29 +64,45 @@ df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
-# model = Sequential()
-# model.add(Dense(392, input_dim=392, kernel_initializer='normal', activation='relu'))
-# model.add(Dense(784, kernel_initializer='normal', activation='relu'))
-# model.add(Dense(784, kernel_initializer='normal', activation='relu'))
-# model.add(Dense(1, kernel_initializer='normal'))
-# model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
-# checkpoint_name = 'Weights-{epoch:03d}--{val_loss:.5f}.hdf5'
-# checkpoint = ModelCheckpoint(checkpoint_name, monitor='val_loss', verbose = 1, save_best_only = True, mode ='auto')
-# callbacks_list = [checkpoint]
-# # model.fit(df_X, df_Y, epochs=500, batch_size=32, validation_split = 0.2, callbacks=callbacks_list)
-# model.fit(df_X, df_Y, epochs=500, batch_size=256, validation_split = 0.2, callbacks=callbacks_list)
+model = Sequential()
+model.add(Dense(392, input_dim=392, kernel_initializer='normal', activation='relu'))
+model.add(Dense(784, kernel_initializer='normal', activation='relu'))
+#model.add(Dense(784, kernel_initializer='normal', activation='relu'))
+model.add(Dense(1, kernel_initializer='normal'))
+model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+checkpoint_name = 'Weights-{epoch:03d}--{val_loss:.5f}.hdf5'
+checkpoint = ModelCheckpoint(checkpoint_name, monitor='val_loss', verbose = 1, save_best_only = True, mode ='auto')
+callbacks_list = [checkpoint]
+# model.fit(df_X, df_Y, epochs=500, batch_size=32, validation_split = 0.2, callbacks=callbacks_list)
+model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list)
+print('[' + str(datetime.now()) + '] Persisting model structure...')
+sys.stdout.flush()
+s3 = s3fs.S3FileSystem(anon=False)
+struct_file = "w210policedata/models/keras_struct.json"
+with s3.open(struct_file, "w") as json_file:
+    json_file.write(model.to_json())
+print('[' + str(datetime.now()) + '] Persisting model weights...')
+sys.stdout.flush()
+temp_file = tempfile.NamedTemporaryFile(delete=True)
+weights_file = "w210policedata/models/keras_weights.h5"
+model.save_weights(temp_file.name)
+s3.put(temp_file.name,weights_file)
+temp_file.close()
 ### END OF KERAS DEEP NEURAL NET MODEL
 
 ### LINES BELOW FOR XGBREGRESSOR MODEL
-train_X, val_X, train_y, val_y = train_test_split(df_X, df_Y, test_size = 0.20)
-model = XGBRegressor(n_jobs=6)
-model.fit(train_X,train_y , verbose=True)
-print('[' + str(datetime.now()) + '] Training complete!')
-sys.stdout.flush()
-print('[' + str(datetime.now()) + '] Running validation test...')
-sys.stdout.flush()
-XGBpredictions = model.predict(val_X)
-MAE = mean_absolute_error(val_y , XGBpredictions)
-print('[' + str(datetime.now()) + '] XGBoost validation MAE = ',MAE)
-sys.stdout.flush()
+# train_X, val_X, train_y, val_y = train_test_split(df_X, df_Y, test_size = 0.20)
+# model = XGBRegressor(n_jobs=6)
+# model.fit(train_X,train_y , verbose=True)
+# print('[' + str(datetime.now()) + '] Training complete!')
+# sys.stdout.flush()
+# print('[' + str(datetime.now()) + '] Running validation test...')
+# sys.stdout.flush()
+# XGBpredictions = model.predict(val_X)
+# MAE = mean_absolute_error(val_y , XGBpredictions)
+# print('[' + str(datetime.now()) + '] XGBoost validation MAE = ',MAE)
+# sys.stdout.flush()
 ### END OF XGBREGRESSOR MODEL
+
+print('[' + str(datetime.now()) + '] Finished!')
+sys.exit(0)
