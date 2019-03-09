@@ -4,6 +4,7 @@ import s3fs
 import sys
 import os
 import tempfile
+import pickle
 from datetime import datetime
 from keras.models import Sequential
 from keras.layers import Dense
@@ -77,17 +78,28 @@ callbacks_list = [checkpoint]
 model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list)
 print('[' + str(datetime.now()) + '] Persisting model structure...')
 sys.stdout.flush()
-s3 = s3fs.S3FileSystem(anon=False)
-struct_file = "w210policedata/models/keras_struct.json"
-with s3.open(struct_file, "w") as json_file:
-    json_file.write(model.to_json())
-print('[' + str(datetime.now()) + '] Persisting model weights...')
-sys.stdout.flush()
-temp_file = tempfile.NamedTemporaryFile(delete=True)
-weights_file = "w210policedata/models/keras_weights.h5"
-model.save_weights(temp_file.name)
-s3.put(temp_file.name,weights_file)
-temp_file.close()
+try:
+    s3 = s3fs.S3FileSystem(anon=False)
+    struct_file = "w210policedata/models/keras_struct.json"
+    with s3.open(struct_file, "w") as json_file:
+        json_file.write(model.to_json())
+        json_file.close()
+    print('[' + str(datetime.now()) + '] Persisting model weights...')
+    sys.stdout.flush()
+    temp_file = tempfile.NamedTemporaryFile(delete=True)
+    weights_file = "w210policedata/models/keras_weights.h5"
+    model.save_weights(temp_file.name)
+    s3.put(temp_file.name,weights_file)
+    temp_file.close()
+    features = df_X.columns
+    features_file = "w210policedata/models/keras_features.pickle"
+    with s3.open(features_file, "wb") as json_file:
+        pickle.dump(features, json_file, protocol=pickle.HIGHEST_PROTOCOL)
+        json_file.close()
+except:
+    print('[' + str(datetime.now()) + '] Error persisting model structure.')
+    print('[' + str(datetime.now()) + '] Aborting...')
+    sys.exit(1)
 ### END OF KERAS DEEP NEURAL NET MODEL
 
 ### LINES BELOW FOR XGBREGRESSOR MODEL
