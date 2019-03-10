@@ -9,43 +9,55 @@ import threading
 import s3fs
 import tempfile
 import pickle
+import json
+import itertools
+import tensorflow as tf
 from flask import Flask
-from flask_restful import Resource, Api
+from flask_restful import Resource, Api, reqparse
 from keras.models import model_from_json
 from keras.models import Sequential
 from keras.layers import Dense
-from keras import backend
+from keras import backend as K
 from keras.wrappers.scikit_learn import KerasRegressor
 
-application = Flask(__name__)
-api = Api(application)
-
-runningProcess = None
-processStdout = []
-
-model = None
-model_features = None
-
-s3fs.S3FileSystem.read_timeout = 5184000  # one day
-s3fs.S3FileSystem.connect_timeout = 5184000  # one day
-s3 = s3fs.S3FileSystem(anon=False)
-struct_file = 'w210policedata/models/keras_struct.json'
-weights_file = 'w210policedata/models/keras_weights.h5'
-features_file = 'w210policedata/models/keras_features.pickle'
-try:
+def load_keras_model():
+    s3fs.S3FileSystem.read_timeout = 5184000  # one day
+    s3fs.S3FileSystem.connect_timeout = 5184000  # one day
+    s3 = s3fs.S3FileSystem(anon=False)
+    K.clear_session()
+    struct_file = 'w210policedata/models/keras_struct.json'
+    weights_file = 'w210policedata/models/keras_weights.h5'
+    features_file = 'w210policedata/models/keras_features.pickle'
     with s3.open(struct_file, "r") as json_file:
         model = model_from_json(json_file.read())
         json_file.close()
     temp_file = tempfile.NamedTemporaryFile(delete=True)
     s3.get(weights_file,temp_file.name)
     model.load_weights(temp_file.name)
+    graph = tf.get_default_graph()
     temp_file.close()
     with s3.open(features_file, "rb") as pickle_file:
-        model_features = pickle.load(pickle_file).values.tolist()
+        model_features = pickle.load(pickle_file)
         pickle_file.close()
-except Exception as e:
-    print('Model could not be loaded!')
-    print(e)
+    return model,model_features,graph
+
+application = Flask(__name__)
+api = Api(application)
+
+predictParser = reqparse.RequestParser()
+predictParser.add_argument('beat')
+predictParser.add_argument('weekday')
+predictParser.add_argument('weekyear')
+predictParser.add_argument('hourday')
+
+runningProcess = None
+processStdout = []
+
+model = None
+model_features = None
+graph = None
+
+model,model_features,graph = load_keras_model()
 
 # Services to implement:
 #   * Train
@@ -107,37 +119,46 @@ class killTrainer(Resource):
 class predict(Resource):
     # Get predictors
     def get(self):
+        global model
+        global model_features
         if (model is None):
             return {'message':'Model is not loaded','result':'failed'}
         return {'input_features':model_features,'result':'success'}
     # Run the predictions
-    def post(self,data):
-        return {'result':data}
+    def post(self):
+        global model
+        global model_features
+        global graph
+        if (model is None):
+            return {'message':'Model is not loaded','result':'failed'}
+        args = predictParser.parse_args()
+        for arg in args:
+            if args[arg] is None:
+                return {'message':'Missing input '+arg,'result':'failed'}
+            else:
+                args[arg] = json.loads(args[arg])
+        df = pd.DataFrame(columns=model_features)
+        crime_types = [x for x in model_features if x.startswith('type_')]
+        results = []
+        for bt,wy,wd,hd,ct in itertools.product(args['beat'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
+            line = {'beat_'+str(bt):1,'weekyear_'+str(wy):1,'weekday_'+str(wd):1,'hourday_'+str(hd):1,ct:1}
+            df = df.append(line, ignore_index=True)
+            results.append({'beat':str(bt),'weekyear':wy,'weekday':wd,'hourday':hd,'type':ct.replace('type_',''),'pred':None})
+        df.fillna(0,inplace=True)
+        with graph.as_default():
+            prediction = model.predict(df)
+        for i in range(len(prediction)):
+            results[i]['pred'] = float(prediction[i][0])
+        return {'result':results}
 
 class reloadModel(Resource):
     def get(self):
         # Reload the model
         global model
         global model_features
-        global s3
-        global struct_file
-        global weights_file
-        global features_file
-        # Reset model
-        backend.clear_session()
-        model = None
-        model_features = None
+        global graph
         try:
-            with s3.open(struct_file, "r") as json_file:
-                model = model_from_json(json_file.read())
-                json_file.close()
-            temp_file = tempfile.NamedTemporaryFile(delete=True)
-            s3.get(weights_file,temp_file.name)
-            model.load_weights(temp_file.name)
-            temp_file.close()
-            with s3.open(features_file, "rb") as pickle_file:
-                model_features = pickle.load(pickle_file).values.tolist()
-                pickle_file.close()
+            model,model_features,graph = load_keras_model()
             return{'message':'Model reloaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
