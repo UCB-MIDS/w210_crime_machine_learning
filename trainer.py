@@ -10,6 +10,7 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.wrappers.scikit_learn import KerasRegressor
 from keras.callbacks import ModelCheckpoint
+from keras import backend as K
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
@@ -65,6 +66,7 @@ df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
+K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_‌​parallelism_threads=‌​6, inter_op_parallelism_threads=6)))
 model = Sequential()
 model.add(Dense(392, input_dim=392, kernel_initializer='normal', activation='relu'))
 model.add(Dense(784, kernel_initializer='normal', activation='relu'))
@@ -75,7 +77,7 @@ checkpoint_name = 'Weights-{epoch:03d}--{val_loss:.5f}.hdf5'
 checkpoint = ModelCheckpoint(checkpoint_name, monitor='val_loss', verbose = 1, save_best_only = True, mode ='auto')
 callbacks_list = [checkpoint]
 # model.fit(df_X, df_Y, epochs=500, batch_size=32, validation_split = 0.2, callbacks=callbacks_list)
-model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list)
+model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list, verbose=2)
 print('[' + str(datetime.now()) + '] Persisting model structure...')
 sys.stdout.flush()
 try:
@@ -91,7 +93,7 @@ try:
     model.save_weights(temp_file.name)
     s3.put(temp_file.name,weights_file)
     temp_file.close()
-    features = df_X.columns
+    features = df_X.columns.values.tolist()
     features_file = "w210policedata/models/keras_features.pickle"
     with s3.open(features_file, "wb") as json_file:
         pickle.dump(features, json_file, protocol=pickle.HIGHEST_PROTOCOL)
