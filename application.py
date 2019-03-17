@@ -36,6 +36,7 @@ def load_keras_model():
     model.load_weights(temp_file.name)
     graph = tf.get_default_graph()
     temp_file.close()
+    model.compile(loss='mean_squared_error', optimizer='adadelta', metrics=['mean_absolute_error'])
     with s3.open(features_file, "rb") as pickle_file:
         model_features = pickle.load(pickle_file)
         pickle_file.close()
@@ -138,17 +139,17 @@ class predict(Resource):
             else:
                 args[arg] = json.loads(args[arg])
         df = pd.DataFrame(columns=model_features)
-        crime_types = [x for x in model_features if x.startswith('type_')]
+        crime_types = [x for x in model_features if x.startswith('primaryType_')]
         results = []
-        for bt,wy,wd,hd,ct in itertools.product(args['beat'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
-            line = {'beat_'+str(bt):1,'weekyear_'+str(wy):1,'weekday_'+str(wd):1,'hourday_'+str(hd):1,ct:1}
+        for bt,wy,wd,hd,ct in itertools.product(args['communityArea'],args['weekYear'],args['weekDay'],args['hourDay'],crime_types):
+            line = {'communityArea_'+str(bt):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
             df = df.append(line, ignore_index=True)
-            results.append({'beat':str(bt),'weekyear':wy,'weekday':wd,'hourday':hd,'type':ct.replace('type_',''),'pred':None})
+            results.append({'communityArea':str(bt),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
         with graph.as_default():
             prediction = model.predict(df)
         for i in range(len(prediction)):
-            results[i]['pred'] = float(prediction[i][0])
+            results[i]['pred'] = int(np.round(float(prediction[i][0])-0.39+0.5))
         return {'result':results}
 
 class reloadModel(Resource):

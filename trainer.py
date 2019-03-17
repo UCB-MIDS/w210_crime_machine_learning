@@ -66,18 +66,22 @@ df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
+size_input = len(df_X.columns)
 K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_‌​parallelism_threads=‌​6, inter_op_parallelism_threads=6)))
 model = Sequential()
-model.add(Dense(392, input_dim=392, kernel_initializer='normal', activation='relu'))
-model.add(Dense(784, kernel_initializer='normal', activation='relu'))
+model.add(Dense(size_input, input_dim=size_input, kernel_initializer='normal', activation='relu'))
+model.add(Dense(size_input*2, kernel_initializer='normal', activation='relu'))
 #model.add(Dense(784, kernel_initializer='normal', activation='relu'))
 model.add(Dense(1, kernel_initializer='normal'))
 model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
-checkpoint_name = 'Weights-{epoch:03d}--{val_loss:.5f}.hdf5'
+checkpoint_name = 'bestweights.hdf5'
 checkpoint = ModelCheckpoint(checkpoint_name, monitor='val_loss', verbose = 1, save_best_only = True, mode ='auto')
 callbacks_list = [checkpoint]
 # model.fit(df_X, df_Y, epochs=500, batch_size=32, validation_split = 0.2, callbacks=callbacks_list)
 model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list, verbose=2)
+print('[' + str(datetime.now()) + '] Reloading best model checkpoint...')
+model.load_weights("bestweights.hdf5")
+model.compile(loss='mean_squared_error', optimizer='adadelta', metrics=['mean_absolute_error'])
 print('[' + str(datetime.now()) + '] Persisting model structure...')
 sys.stdout.flush()
 try:
