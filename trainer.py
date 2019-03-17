@@ -9,7 +9,7 @@ from datetime import datetime
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.wrappers.scikit_learn import KerasRegressor
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
@@ -76,7 +76,8 @@ model.add(Dense(1, kernel_initializer='normal'))
 model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
 checkpoint_name = 'bestweights.hdf5'
 checkpoint = ModelCheckpoint(checkpoint_name, monitor='val_loss', verbose = 1, save_best_only = True, mode ='auto')
-callbacks_list = [checkpoint]
+earlystop = EarlyStopping(monitor='val_loss', min_delta=0.01, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+callbacks_list = [checkpoint,earlystop]
 # model.fit(df_X, df_Y, epochs=500, batch_size=32, validation_split = 0.2, callbacks=callbacks_list)
 model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list, verbose=2)
 print('[' + str(datetime.now()) + '] Reloading best model checkpoint...')
