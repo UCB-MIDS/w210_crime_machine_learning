@@ -67,7 +67,7 @@ df_X = training_data.iloc[:,1:]
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
 size_input = len(df_X.columns)
-K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_‌​parallelism_threads=‌​6, inter_op_parallelism_threads=6)))
+K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_parallelism_threads=6, inter_op_parallelism_threads=6)))
 model = Sequential()
 model.add(Dense(size_input, input_dim=size_input, kernel_initializer='normal', activation='relu'))
 model.add(Dense(size_input*2, kernel_initializer='normal', activation='relu'))
