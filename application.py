@@ -14,6 +14,7 @@ import itertools
 import tensorflow as tf
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
+from flask_cors import CORS, cross_origin
 from keras.models import model_from_json
 from keras.models import Sequential
 from keras.layers import Dense
@@ -45,8 +46,11 @@ def load_keras_model():
 application = Flask(__name__)
 api = Api(application)
 
+application.config['CORS_ENABLED'] = True
+CORS(application)
+
 predictParser = reqparse.RequestParser()
-predictParser.add_argument('beat')
+predictParser.add_argument('communityarea')
 predictParser.add_argument('weekday')
 predictParser.add_argument('weekyear')
 predictParser.add_argument('hourday')
@@ -135,16 +139,19 @@ class predict(Resource):
         args = predictParser.parse_args()
         for arg in args:
             if args[arg] is None:
-                return {'message':'Missing input '+arg,'result':'failed'}
+                if (arg == 'communityarea'):
+                    args[arg] = [x.replace('communityArea_','') for x in model_features if x.startswith('communityArea_')]
+                else:
+                    return {'message':'Missing input '+arg,'result':'failed'}
             else:
                 args[arg] = json.loads(args[arg])
         df = pd.DataFrame(columns=model_features)
         crime_types = [x for x in model_features if x.startswith('primaryType_')]
         results = []
-        for bt,wy,wd,hd,ct in itertools.product(args['communityArea'],args['weekYear'],args['weekDay'],args['hourDay'],crime_types):
-            line = {'communityArea_'+str(bt):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
+        for ca,wy,wd,hd,ct in itertools.product(args['communityarea'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
+            line = {'communityArea_'+str(ca):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
             df = df.append(line, ignore_index=True)
-            results.append({'communityArea':str(bt),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
+            results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
         with graph.as_default():
             prediction = model.predict(df)
@@ -172,4 +179,4 @@ api.add_resource(predict, '/predict')
 api.add_resource(reloadModel, '/reloadModel')
 
 if __name__ == '__main__':
-    application.run(debug=True)
+    application.run(debug=True, port=60000)
