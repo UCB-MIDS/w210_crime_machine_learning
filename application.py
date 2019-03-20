@@ -217,8 +217,12 @@ class predict(Resource):
                 prediction = model.predict(df)
         else:
             prediction = model.predict(df)
+        print(prediction)
         for i in range(len(prediction)):
-            results[i]['pred'] = int(np.round(float(prediction[i][0])-0.39+0.5))
+            if model_type == 'keras':
+                results[i]['pred'] = int(np.round(float(prediction[i][0])-0.39+0.5))
+            else:
+                results[i]['pred'] = int(np.round(float(prediction[i])-0.39+0.5))
         return {'result':results}
 
 class reloadModel(Resource):
