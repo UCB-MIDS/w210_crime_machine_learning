@@ -88,7 +88,7 @@ class trainModel(Resource):
             if (runningProcess.poll() is not None):
                 return {'message':'There is a model training job currently running.','pid':runningProcess.pid,'result': 'failed'}
         try:
-            command = 'python trainer.py'
+            command = 'python trainer_keras.py'
             runningProcess = subprocess.Popen(shlex.split(command),stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
             processStdout = []
             t = threading.Thread(target=processTracker, args=(runningProcess,))
