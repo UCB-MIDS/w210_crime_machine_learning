@@ -82,7 +82,7 @@ callbacks_list = [checkpoint,earlystop]
 model.fit(df_X, df_Y, epochs=200, batch_size=16384, validation_split = 0.2, callbacks=callbacks_list, verbose=2)
 print('[' + str(datetime.now()) + '] Reloading best model checkpoint...')
 model.load_weights("bestweights.hdf5")
-model.compile(loss='mean_squared_error', optimizer='adadelta', metrics=['mean_absolute_error'])
+model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
 print('[' + str(datetime.now()) + '] Persisting model structure...')
 sys.stdout.flush()
 try:
