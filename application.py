@@ -37,7 +37,7 @@ def load_keras_model():
     model.load_weights(temp_file.name)
     graph = tf.get_default_graph()
     temp_file.close()
-    model.compile(loss='mean_squared_error', optimizer='adadelta', metrics=['mean_absolute_error'])
+    model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
     with s3.open(features_file, "rb") as pickle_file:
         model_features = pickle.load(pickle_file)
         pickle_file.close()
