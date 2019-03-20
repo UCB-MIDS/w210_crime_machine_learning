@@ -9,19 +9,21 @@ import threading
 import s3fs
 import tempfile
 import pickle
+import joblib
 import json
 import itertools
-import tensorflow as tf
+import configparser
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from flask_cors import CORS, cross_origin
-from keras.models import model_from_json
-from keras.models import Sequential
-from keras.layers import Dense
-from keras import backend as K
-from keras.wrappers.scikit_learn import KerasRegressor
 
 def load_keras_model():
+    from keras.models import model_from_json
+    from keras.models import Sequential
+    from keras.layers import Dense
+    from keras import backend as K
+    from keras.wrappers.scikit_learn import KerasRegressor
+    import tensorflow as tf
     s3fs.S3FileSystem.read_timeout = 5184000  # one day
     s3fs.S3FileSystem.connect_timeout = 5184000  # one day
     s3 = s3fs.S3FileSystem(anon=False)
@@ -41,7 +43,23 @@ def load_keras_model():
     with s3.open(features_file, "rb") as pickle_file:
         model_features = pickle.load(pickle_file)
         pickle_file.close()
-    return model,model_features,graph
+    model_type = 'keras'
+    return model,model_features,graph,model_type
+
+def load_xgb_model():
+    from xgboost import XGBRegressor
+    s3fs.S3FileSystem.read_timeout = 5184000  # one day
+    s3fs.S3FileSystem.connect_timeout = 5184000  # one day
+    s3 = s3fs.S3FileSystem(anon=False)
+    model_file = 'w210policedata/models/xgbregressor_model.joblib'
+    temp_file = tempfile.NamedTemporaryFile(delete=True)
+    s3.get(model_file,temp_file.name)
+    model = joblib.load(temp_file.name)
+    graph = None
+    temp_file.close()
+    model_features = model.get_booster().feature_names
+    model_type = 'xgboost'
+    return model,model_features,graph,model_type
 
 application = Flask(__name__)
 api = Api(application)
@@ -49,20 +67,40 @@ api = Api(application)
 application.config['CORS_ENABLED'] = True
 CORS(application)
 
-predictParser = reqparse.RequestParser()
-predictParser.add_argument('communityarea')
-predictParser.add_argument('weekday')
-predictParser.add_argument('weekyear')
-predictParser.add_argument('hourday')
-
 runningProcess = None
 processStdout = []
 
 model = None
 model_features = None
+model_type = None
 graph = None
 
-model,model_features,graph = load_keras_model()
+### Load default model configuration from configuration file
+s3fs.S3FileSystem.read_timeout = 5184000  # one day
+s3fs.S3FileSystem.connect_timeout = 5184000  # one day
+s3 = s3fs.S3FileSystem(anon=False)
+config_file = 'w210policedata/config/ml.ini'
+try:
+    temp_file = tempfile.NamedTemporaryFile(delete=True)
+    s3.get(config_file,temp_file.name)
+    config = configparser.ConfigParser()
+    config.read(temp_file.name)
+except:
+    print('Failed to load configuration file.')
+    print('Creating new file with default values.')
+    config = configparser.ConfigParser()
+    config['GENERAL'] = {'DefaultModel': 'xgboost'}
+    temp_file = tempfile.NamedTemporaryFile(delete=True)
+    with open(temp_file.name, 'w') as confs:
+        config.write(confs)
+    s3.put(temp_file.name,config_file)
+    temp_file.close()
+default_model = config['GENERAL']['DefaultModel']
+
+if default_model == 'keras':
+    model,model_features,graph,model_type = load_keras_model()
+else:
+    model,model_features,graph,model_type = load_xgb_model()
 
 # Services to implement:
 #   * Train
@@ -84,11 +122,23 @@ class trainModel(Resource):
         # Run background worker to read from S3, transform and write back to S3
         global runningProcess
         global processStdout
+
+        trainParser = reqparse.RequestParser()
+        trainParser.add_argument('modeltype')
+        args = trainParser.parse_args()
+
+        if args['modeltype'] is None:
+            return {'message':'Missing modeltype argument. Supported types: keras, xgboost.','result':'failed'}
+
+
         if (runningProcess is not None):
             if (runningProcess.poll() is not None):
                 return {'message':'There is a model training job currently running.','pid':runningProcess.pid,'result': 'failed'}
         try:
-            command = 'python trainer_keras.py'
+            if args['modeltype'] == 'keras':
+                command = 'python trainer_keras.py'
+            else:
+                command = 'python trainer_xgbregressor.py'
             runningProcess = subprocess.Popen(shlex.split(command),stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
             processStdout = []
             t = threading.Thread(target=processTracker, args=(runningProcess,))
@@ -126,14 +176,23 @@ class predict(Resource):
     def get(self):
         global model
         global model_features
+        global model_type
         if (model is None):
             return {'message':'Model is not loaded','result':'failed'}
-        return {'input_features':model_features,'result':'success'}
+        return {'model_type':model_type,'input_features':model_features,'result':'success'}
     # Run the predictions
     def post(self):
         global model
         global model_features
         global graph
+        global model_type
+
+        predictParser = reqparse.RequestParser()
+        predictParser.add_argument('communityarea')
+        predictParser.add_argument('weekday')
+        predictParser.add_argument('weekyear')
+        predictParser.add_argument('hourday')
+
         if (model is None):
             return {'message':'Model is not loaded','result':'failed'}
         args = predictParser.parse_args()
@@ -153,7 +212,10 @@ class predict(Resource):
             df = df.append(line, ignore_index=True)
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
-        with graph.as_default():
+        if (model_type == 'keras'):
+            with graph.as_default():
+                prediction = model.predict(df)
+        else:
             prediction = model.predict(df)
         for i in range(len(prediction)):
             results[i]['pred'] = int(np.round(float(prediction[i][0])-0.39+0.5))
@@ -165,8 +227,20 @@ class reloadModel(Resource):
         global model
         global model_features
         global graph
+        global model_type
+
+        loadParser = reqparse.RequestParser()
+        loadParser.add_argument('modeltype')
+        args = loadParser.parse_args()
+
+        if args['modeltype'] is None:
+            return {'message':'Missing modeltype argument. Supported types: keras, xgboost.','result':'failed'}
+
         try:
-            model,model_features,graph = load_keras_model()
+            if args['modeltype'] == 'keras':
+                model,model_features,graph,model_type = load_keras_model()
+            else:
+                model,model_features,graph,model_type = load_xgb_model()
             return{'message':'Model reloaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
