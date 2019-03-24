@@ -13,7 +13,6 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
-from xgboost import XGBRegressor
 
 print('[' + str(datetime.now()) + '] Reading training dataset...')
 sys.stdout.flush()
@@ -63,11 +62,15 @@ except Exception as e:
 
 print('[' + str(datetime.now()) + '] Training model...')
 sys.stdout.flush()
-scaler = MinMaxScaler(feature_range=(-1, 1))
-scaler.fit(training_data)
-training_data = scaler.transform(training_data)
 df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
+y_scaler = MinMaxScaler()
+y_scaler.fit(df_Y.values.reshape(-1,1))
+df_Y = y_scaler.transform(df_Y.values.reshape(-1,1))
+x_scaler = MinMaxScaler()
+x_scaler.fit(df_X)
+df_X = x_scaler.transform(df_X)
+scaler = {'x':x_scaler,'y':y_scaler}
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
 size_input = len(df_X.columns)
