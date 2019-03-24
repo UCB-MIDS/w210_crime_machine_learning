@@ -44,7 +44,11 @@ def load_keras_model():
         model_features = pickle.load(pickle_file)
         pickle_file.close()
     model_type = 'keras'
-    return model,model_features,graph,model_type
+    scaler_file = "w210policedata/models/keras_scaler.pickle"
+    with s3.open(scaler_file, "rb") as pickle_file:
+        model_scalers = pickle.load(pickle_file)
+        pickle_file.close()
+    return model,model_features,graph,model_type,model_scalers
 
 def load_xgb_model():
     from xgboost import XGBRegressor
@@ -59,7 +63,8 @@ def load_xgb_model():
     temp_file.close()
     model_features = model.get_booster().feature_names
     model_type = 'xgboost'
-    return model,model_features,graph,model_type
+    model_scalers = None
+    return model,model_features,graph,model_type,model_scalers
 
 application = Flask(__name__)
 api = Api(application)
@@ -74,6 +79,7 @@ model = None
 model_features = None
 model_type = None
 graph = None
+model_scalers = None
 
 ### Load default model configuration from configuration file
 s3fs.S3FileSystem.read_timeout = 5184000  # one day
@@ -89,7 +95,7 @@ except:
     print('Failed to load configuration file.')
     print('Creating new file with default values.')
     config = configparser.ConfigParser()
-    config['GENERAL'] = {'DefaultModel': 'xgboost'}
+    config['GENERAL'] = {'DefaultModel': 'keras'}
     temp_file = tempfile.NamedTemporaryFile(delete=True)
     with open(temp_file.name, 'w') as confs:
         config.write(confs)
@@ -98,9 +104,9 @@ except:
 default_model = config['GENERAL']['DefaultModel']
 
 if default_model == 'keras':
-    model,model_features,graph,model_type = load_keras_model()
+    model,model_features,graph,model_type,model_scalers = load_keras_model()
 else:
-    model,model_features,graph,model_type = load_xgb_model()
+    model,model_features,graph,model_type,model_scalers = load_xgb_model()
 
 # Services to implement:
 #   * Train
@@ -186,6 +192,7 @@ class predict(Resource):
         global model_features
         global graph
         global model_type
+        global model_scalers
 
         predictParser = reqparse.RequestParser()
         predictParser.add_argument('communityarea')
@@ -213,11 +220,12 @@ class predict(Resource):
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
         if (model_type == 'keras'):
+            df = model_scalers['x'].transform(df)
             with graph.as_default():
                 prediction = model.predict(df)
+                prediction = model_scalers['y'].inverse_transform(prediction)
         else:
             prediction = model.predict(df)
-        print(prediction)
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(np.round(float(prediction[i][0])-0.39+0.5))
@@ -232,6 +240,7 @@ class reloadModel(Resource):
         global model_features
         global graph
         global model_type
+        global model_scalers
 
         loadParser = reqparse.RequestParser()
         loadParser.add_argument('modeltype')
@@ -242,9 +251,9 @@ class reloadModel(Resource):
 
         try:
             if args['modeltype'] == 'keras':
-                model,model_features,graph,model_type = load_keras_model()
+                model,model_features,graph,model_type,model_scalers = load_keras_model()
             else:
-                model,model_features,graph,model_type = load_xgb_model()
+                model,model_features,graph,model_type,model_scalers = load_xgb_model()
             return{'message':'Model reloaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
