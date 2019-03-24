@@ -13,6 +13,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 print('[' + str(datetime.now()) + '] Reading training dataset...')
 sys.stdout.flush()
