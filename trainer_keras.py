@@ -63,15 +63,11 @@ except Exception as e:
 
 print('[' + str(datetime.now()) + '] Training model...')
 sys.stdout.flush()
+scaler = MinMaxScaler()
+scaler.fit(training_data)
+training_data = scaler.transform(training_data)
 df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
-
-# Perform scaling of variables and target
-y_scaler = MinMaxScaler()
-y_scaler.fit(df_Y)
-df_Y = y_scaler.transform(df_Y)
-
-scalers = {'y':y_scaler}
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
 size_input = len(df_X.columns)
@@ -111,9 +107,9 @@ try:
     with s3.open(features_file, "wb") as json_file:
         pickle.dump(features, json_file, protocol=pickle.HIGHEST_PROTOCOL)
         json_file.close()
-    scalers_file = "w210policedata/models/keras_scalers.pickle"
-    with s3.open(scalers_file, "wb") as json_file:
-        pickle.dump(scalers, json_file, protocol=pickle.HIGHEST_PROTOCOL)
+    scaler_file = "w210policedata/models/keras_scaler.pickle"
+    with s3.open(scaler_file, "wb") as json_file:
+        pickle.dump(scaler, json_file, protocol=pickle.HIGHEST_PROTOCOL)
         json_file.close()
 except:
     print('[' + str(datetime.now()) + '] Error persisting model structure.')
