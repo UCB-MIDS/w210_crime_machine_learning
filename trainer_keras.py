@@ -12,6 +12,7 @@ from keras.wrappers.scikit_learn import KerasRegressor
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBRegressor
 
 print('[' + str(datetime.now()) + '] Reading training dataset...')
@@ -65,6 +66,13 @@ sys.stdout.flush()
 df_Y = training_data.iloc[:,0]
 df_X = training_data.iloc[:,1:]
 
+# Perform scaling of variables and target
+y_scaler = MinMaxScaler()
+y_scaler.fit(df_Y)
+df_Y = y_scaler.transform(df_Y)
+
+scalers = {'y':y_scaler}
+
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
 size_input = len(df_X.columns)
 K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_parallelism_threads=6, inter_op_parallelism_threads=6)))
@@ -103,25 +111,15 @@ try:
     with s3.open(features_file, "wb") as json_file:
         pickle.dump(features, json_file, protocol=pickle.HIGHEST_PROTOCOL)
         json_file.close()
+    scalers_file = "w210policedata/models/keras_scalers.pickle"
+    with s3.open(scalers_file, "wb") as json_file:
+        pickle.dump(scalers, json_file, protocol=pickle.HIGHEST_PROTOCOL)
+        json_file.close()
 except:
     print('[' + str(datetime.now()) + '] Error persisting model structure.')
     print('[' + str(datetime.now()) + '] Aborting...')
     sys.exit(1)
 ### END OF KERAS DEEP NEURAL NET MODEL
-
-### LINES BELOW FOR XGBREGRESSOR MODEL
-# train_X, val_X, train_y, val_y = train_test_split(df_X, df_Y, test_size = 0.20)
-# model = XGBRegressor(n_jobs=6)
-# model.fit(train_X,train_y , verbose=True)
-# print('[' + str(datetime.now()) + '] Training complete!')
-# sys.stdout.flush()
-# print('[' + str(datetime.now()) + '] Running validation test...')
-# sys.stdout.flush()
-# XGBpredictions = model.predict(val_X)
-# MAE = mean_absolute_error(val_y , XGBpredictions)
-# print('[' + str(datetime.now()) + '] XGBoost validation MAE = ',MAE)
-# sys.stdout.flush()
-### END OF XGBREGRESSOR MODEL
 
 print('[' + str(datetime.now()) + '] Finished!')
 sys.exit(0)
