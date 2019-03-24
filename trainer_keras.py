@@ -73,7 +73,7 @@ df_X = x_scaler.transform(df_X)
 scaler = {'x':x_scaler,'y':y_scaler}
 
 ### LINES BELOW FOR KERAS DEEP NEURAL NET MODEL
-size_input = len(df_X.columns)
+size_input = len(df_X.shape[1])
 K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_parallelism_threads=6, inter_op_parallelism_threads=6)))
 model = Sequential()
 model.add(Dense(size_input, input_dim=size_input, kernel_initializer='normal', activation='relu'))
