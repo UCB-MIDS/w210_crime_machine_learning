@@ -63,7 +63,7 @@ except Exception as e:
 
 print('[' + str(datetime.now()) + '] Training model...')
 sys.stdout.flush()
-scaler = MinMaxScaler()
+scaler = MinMaxScaler(feature_range=(-1, 1))
 scaler.fit(training_data)
 training_data = scaler.transform(training_data)
 df_Y = training_data.iloc[:,0]
