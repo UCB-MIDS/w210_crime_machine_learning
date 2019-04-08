@@ -13,9 +13,54 @@ import joblib
 import json
 import itertools
 import configparser
+from scipy.stats import t
+from collections import defaultdict
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from flask_cors import CORS, cross_origin
+from flask_sqlalchemy import SQLAlchemy
+
+# Calculation of prediction Fairness
+# Uses a difference of means test as described in https://link.springer.com/article/10.1007%2Fs10618-017-0506-1
+def calculateFairness(communities, predictions):
+    comm_count = {0: 0, 1: 0}
+    predicted_count = {0: 0, 1: 0}
+
+    for comm in predictions:
+        comm_code = int(comm)
+        if (communities[comm_code]['ethnicity'] == 0) or (communities[comm_code]['ethnicity'] == 1):
+            comm_count[1] += 1
+            predicted_count[1] += predictions[comm]
+        else:
+            comm_count[0] += 1
+            predicted_count[0] += predictions[comm]
+
+    df = comm_count[0]+comm_count[1]-2
+
+    if (predicted_count[0] == 0) and (predicted_count[1] == 0):
+        return 1
+
+    means = {0: predicted_count[0]/comm_count[0], 1: predicted_count[1]/comm_count[1]}
+
+    variances = {0: 0, 1: 0}
+
+    for comm in predictions:
+        comm_code = int(comm)
+        if (communities[comm_code]['ethnicity'] == 0) or (communities[comm_code]['ethnicity'] == 1):
+            variances[1] += (predictions[comm]-means[1])**2
+        else:
+            variances[0] += (predictions[comm]-means[0])**2
+
+    variances = {0: variances[0]/(comm_count[0]-1), 1: variances[1]/(comm_count[1]-1)}
+
+    sigma = ((((comm_count[0]-1)*(variances[0]**2))+((comm_count[1]-1)*(variances[1]**2)))/(comm_count[0]+comm_count[1]-2))**0.5
+
+    t_stat = (means[0]-means[1])/(sigma*(((1/comm_count[0])+(1/comm_count[1]))**0.5))
+
+    fairness = (1 - t.cdf(abs(t_stat), df)) * 2
+    fairness = fairness*100
+
+    return fairness
 
 def load_keras_model():
     from keras.models import model_from_json
@@ -68,9 +113,22 @@ def load_xgb_model():
 
 application = Flask(__name__)
 api = Api(application)
+application.config.from_pyfile('config.py')
+db = SQLAlchemy(application)
 
 application.config['CORS_ENABLED'] = True
 CORS(application)
+
+## Define the DB model
+class Community(db.Model):
+    __tablename__ = 'community'
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.Integer)
+    name = db.Column(db.String(255))
+    ethnicity = db.Column(db.Integer)
+
+    def __str__(self):
+        return self.name
 
 runningProcess = None
 processStdout = []
@@ -233,6 +291,79 @@ class predict(Resource):
                 results[i]['pred'] = int(max(np.round(float(prediction[i])-0.39+0.5),0))
         return {'result':results}
 
+class predictionAndKPIs(Resource):
+    # Get predictors
+    def get(self):
+        global model
+        global model_features
+        global model_type
+        if (model is None):
+            return {'message':'Model is not loaded','result':'failed'}
+        return {'model_type':model_type,'input_features':model_features,'result':'success'}
+    # Run the predictions
+    def post(self):
+        global model
+        global model_features
+        global graph
+        global model_type
+        global model_scalers
+
+        predictParser = reqparse.RequestParser()
+        predictParser.add_argument('communityarea')
+        predictParser.add_argument('weekday')
+        predictParser.add_argument('weekyear')
+        predictParser.add_argument('hourday')
+
+        if (model is None):
+            return {'message':'Model is not loaded','result':'failed'}
+        args = predictParser.parse_args()
+        for arg in args:
+            if args[arg] is None:
+                if (arg == 'communityarea'):
+                    args[arg] = [x.replace('communityArea_','') for x in model_features if x.startswith('communityArea_')]
+                else:
+                    return {'message':'Missing input '+arg,'result':'failed'}
+            else:
+                args[arg] = json.loads(args[arg])
+        df = pd.DataFrame(columns=model_features)
+        crime_types = [x for x in model_features if x.startswith('primaryType_')]
+        results = []
+        for ca,wy,wd,hd,ct in itertools.product(args['communityarea'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
+            line = {'communityArea_'+str(ca):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
+            df = df.append(line, ignore_index=True)
+            results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
+        df.fillna(0,inplace=True)
+        if (model_type == 'keras'):
+            df = model_scalers['x'].transform(df)
+            with graph.as_default():
+                prediction = model.predict(df)
+                prediction = model_scalers['y'].inverse_transform(prediction)
+        else:
+            prediction = model.predict(df)
+        for i in range(len(prediction)):
+            if model_type == 'keras':
+                results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
+            else:
+                results[i]['pred'] = int(max(np.round(float(prediction[i])-0.39+0.5),0))
+
+        # Consolidate into map format and calculate KPIs
+        crimeByCommunity = defaultdict(int)
+        crimeByType = defaultdict(int)
+        communities = {}
+        predictionFairness = 0
+
+        for comm in db.session.query(Community):
+            communities[comm.code] = {'id':comm.id,'code':comm.code,'name':comm.name,'ethnicity':comm.ethnicity}
+
+        for result in results:
+            if result['communityArea'] != '0':
+                crimeByCommunity[result['communityArea']] += result['pred']
+                crimeByType[result['primaryType']] += result['pred']
+
+        predictionFairness = calculateFairness(communities,crimeByCommunity)
+
+        return {'crimeByCommunity':crimeByCommunity, 'crimeByType':crimeByType, 'fairness': predictionFairness, 'predictions':results, 'result':'success'}
+
 class reloadModel(Resource):
     def get(self):
         # Reload the model
@@ -263,6 +394,7 @@ api.add_resource(trainModel, '/trainModel')
 api.add_resource(getTrainingStatus, '/getTrainingStatus')
 api.add_resource(killTrainer, '/killTrainer')
 api.add_resource(predict, '/predict')
+api.add_resource(predictionAndKPIs, '/predictionAndKPIs')
 api.add_resource(reloadModel, '/reloadModel')
 
 if __name__ == '__main__':
