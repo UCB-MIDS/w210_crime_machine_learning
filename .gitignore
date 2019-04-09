@@ -106,3 +106,7 @@ venv.bak/
 # Data files
 data/
 models/
+
+# Configuration files
+config.py
+docloud_config.py
