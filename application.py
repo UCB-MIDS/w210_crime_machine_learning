@@ -111,6 +111,16 @@ def load_xgb_model():
     model_scalers = None
     return model,model_features,graph,model_type,model_scalers
 
+### Load Flask configuration file
+s3fs.S3FileSystem.read_timeout = 5184000  # one day
+s3fs.S3FileSystem.connect_timeout = 5184000  # one day
+s3 = s3fs.S3FileSystem(anon=False)
+config_file = 'w210policedata/config/config.py'
+try:
+    s3.get(config_file,'config.py')
+except:
+    print('Failed to load application configuration file!')
+
 application = Flask(__name__)
 api = Api(application)
 application.config.from_pyfile('config.py')
