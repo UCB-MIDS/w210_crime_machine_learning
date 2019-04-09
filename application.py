@@ -356,7 +356,7 @@ class predictionAndKPIs(Resource):
             communities[comm.code] = {'id':comm.id,'code':comm.code,'name':comm.name,'ethnicity':comm.ethnicity}
 
         for result in results:
-            if result['communityArea'] != '0':
+            if (result['communityArea'] is not None) and (result['primaryType'] is not None) and (result['communityArea'] != '0') and (result['primaryType'] != ''):
                 crimeByCommunity[result['communityArea']] += result['pred']
                 crimeByType[result['primaryType']] += result['pred']
 
