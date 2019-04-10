@@ -74,13 +74,16 @@ for feature in featurelist:
                 columns.append(f['column'])
                 selected_features.append(f)
             break
-        if f['required'] and not (f['column'] in columns):
-            columns.append(f['column'])
-            selected_features.append(f)
     if not exists:
         print('[' + str(datetime.now()) + '] Selected feature '+feature+' is not a valid available feature.')
         print('[' + str(datetime.now()) + '] Aborting...')
         sys.exit(1)
+        
+# Add required features
+for f in available_features:
+    if f['required'] and not (f['column'] in columns):
+        columns.append(f['column'])
+        selected_features.append(f)
 
 print('[' + str(datetime.now()) + '] Training model '+modelname+' with features:')
 for feature in featurelist:
