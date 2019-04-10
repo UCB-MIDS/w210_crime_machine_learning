@@ -78,10 +78,10 @@ for feature in featurelist:
         print('[' + str(datetime.now()) + '] Selected feature '+feature+' is not a valid available feature.')
         print('[' + str(datetime.now()) + '] Aborting...')
         sys.exit(1)
-        
+
 # Add required features
 for f in available_features:
-    if f['required'] and not (f['column'] in columns):
+    if not f['optional'] and not (f['column'] in columns):
         columns.append(f['column'])
         selected_features.append(f)
 
