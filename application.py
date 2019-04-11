@@ -62,7 +62,7 @@ def calculateFairness(communities, predictions):
 
     return fairness
 
-def load_keras_model():
+def load_keras_model(modelname):
     from keras.models import model_from_json
     from keras.models import Sequential
     from keras.layers import Dense
@@ -73,9 +73,11 @@ def load_keras_model():
     s3fs.S3FileSystem.connect_timeout = 5184000  # one day
     s3 = s3fs.S3FileSystem(anon=False)
     K.clear_session()
-    struct_file = 'w210policedata/models/keras_struct.json'
-    weights_file = 'w210policedata/models/keras_weights.h5'
-    features_file = 'w210policedata/models/keras_features.pickle'
+    struct_file = 'w210policedata/models/'+modelname+'/keras_struct.json'
+    weights_file = 'w210policedata/models/'+modelname+'/keras_weights.h5'
+    features_file = 'w210policedata/models/'+modelname+'/keras_features.pickle'
+    scaler_file = 'w210policedata/models/'+modelname+'/keras_scaler.pickle'
+    modelinfo_file = 'w210policedata/models/'+modelname+'/modelinfo.pickle'
     with s3.open(struct_file, "r") as json_file:
         model = model_from_json(json_file.read())
         json_file.close()
@@ -89,18 +91,21 @@ def load_keras_model():
         model_features = pickle.load(pickle_file)
         pickle_file.close()
     model_type = 'keras'
-    scaler_file = "w210policedata/models/keras_scaler.pickle"
     with s3.open(scaler_file, "rb") as pickle_file:
         model_scalers = pickle.load(pickle_file)
         pickle_file.close()
-    return model,model_features,graph,model_type,model_scalers
+    with s3.open(modelinfo_file, "rb") as pickle_file:
+        model_info = pickle.load(pickle_file)
+        pickle_file.close()
+    model_name = model_info['modelname']
+    return model,model_name,model_features,graph,model_type,model_scalers,model_info
 
-def load_xgb_model():
+def load_xgb_model(modelname):
     from xgboost import XGBRegressor
     s3fs.S3FileSystem.read_timeout = 5184000  # one day
     s3fs.S3FileSystem.connect_timeout = 5184000  # one day
     s3 = s3fs.S3FileSystem(anon=False)
-    model_file = 'w210policedata/models/xgbregressor_model.joblib'
+    model_file = 'w210policedata/models/'+modelname+'/xgbregressor_model.joblib'
     temp_file = tempfile.NamedTemporaryFile(delete=True)
     s3.get(model_file,temp_file.name)
     model = joblib.load(temp_file.name)
@@ -109,7 +114,19 @@ def load_xgb_model():
     model_features = model.get_booster().feature_names
     model_type = 'xgboost'
     model_scalers = None
-    return model,model_features,graph,model_type,model_scalers
+    model_info = None
+    model_name=None
+    return model,model_name,model_features,graph,model_type,model_scalers,model_info
+
+def load_model(modelname):
+    modelinfo_file = 'w210policedata/models/'+modelname+'/modelinfo.pickle'
+    with s3.open(modelinfo_file, "rb") as pickle_file:
+        model_info = pickle.load(pickle_file)
+        pickle_file.close()
+    if model_info['type'] == 'keras':
+        return load_keras_model(modelname)
+    else:
+        return load_xgb_model(modelname)
 
 ### Load Flask configuration file
 s3fs.S3FileSystem.read_timeout = 5184000  # one day
@@ -144,10 +161,12 @@ runningProcess = None
 processStdout = []
 
 model = None
+model_name = None
 model_features = None
 model_type = None
 graph = None
 model_scalers = None
+model_info = None
 
 ### Load default model configuration from configuration file
 s3fs.S3FileSystem.read_timeout = 5184000  # one day
@@ -171,10 +190,7 @@ except:
     temp_file.close()
 default_model = config['GENERAL']['DefaultModel']
 
-if default_model == 'keras':
-    model,model_features,graph,model_type,model_scalers = load_keras_model()
-else:
-    model,model_features,graph,model_type,model_scalers = load_xgb_model()
+model,model_name,model_features,graph,model_type,model_scalers,model_info = load_model(default_model)
 
 # Services to implement:
 #   * Train
@@ -198,21 +214,30 @@ class trainModel(Resource):
         global processStdout
 
         trainParser = reqparse.RequestParser()
+        trainParser.add_argument('modelname')
         trainParser.add_argument('modeltype')
+        trainParser.add_argument('features')
         args = trainParser.parse_args()
 
+        if args['modelname'] is None:
+            return {'message':'Missing modelname argument.','result':'failed'}
         if args['modeltype'] is None:
             return {'message':'Missing modeltype argument. Supported types: keras, xgboost.','result':'failed'}
-
+        if args['features'] is None:
+            return {'message':'Missing features argument.','result':'failed'}
 
         if (runningProcess is not None):
             if (runningProcess.poll() is not None):
                 return {'message':'There is a model training job currently running.','pid':runningProcess.pid,'result': 'failed'}
         try:
-            if args['modeltype'] == 'keras':
+            if json.loads(args['modeltype']) == 'keras':
                 command = 'python trainer_keras.py'
             else:
                 command = 'python trainer_xgbregressor.py'
+            command += ' '+json.loads(args['modelname'])
+            for feature in json.loads(args['features']):
+                command += ' "'+feature+'"'
+            print(shlex.split(command))
             runningProcess = subprocess.Popen(shlex.split(command),stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
             processStdout = []
             t = threading.Thread(target=processTracker, args=(runningProcess,))
@@ -223,6 +248,9 @@ class trainModel(Resource):
 
 class getTrainingStatus(Resource):
     def get(self):
+        global runningProcess
+        global processStdout
+
         # Check if the background worker is running and how much of the work is completed
         if (runningProcess is not None):
             returncode = runningProcess.poll()
@@ -233,10 +261,13 @@ class getTrainingStatus(Resource):
                     return {'returncode':returncode,'status':'Model training finished succesfully','stdout':processStdout}
             else:
                 return {'returncode':None,'status':'Model is still training','stdout':processStdout}
-        return {'returncode':None,'status':'No model train running','stdout': None}
+        return {'returncode':None,'status':'No model training running','stdout': None}
 
 class killTrainer(Resource):
     def get(self):
+        global runningProcess
+        global processStdout
+
         # Check if the worker is running and kill it
         if (runningProcess is not None):
             returncode = runningProcess.poll()
@@ -249,11 +280,12 @@ class predict(Resource):
     # Get predictors
     def get(self):
         global model
+        global model_name
         global model_features
         global model_type
         if (model is None):
             return {'message':'Model is not loaded','result':'failed'}
-        return {'model_type':model_type,'input_features':model_features,'result':'success'}
+        return {'model_name':model_name,'model_type':model_type,'input_features':model_features,'result':'success'}
     # Run the predictions
     def post(self):
         global model
@@ -261,6 +293,7 @@ class predict(Resource):
         global graph
         global model_type
         global model_scalers
+        global model_info
 
         predictParser = reqparse.RequestParser()
         predictParser.add_argument('communityarea')
@@ -307,9 +340,10 @@ class predictionAndKPIs(Resource):
         global model
         global model_features
         global model_type
+        global model_name
         if (model is None):
             return {'message':'Model is not loaded','result':'failed'}
-        return {'model_type':model_type,'input_features':model_features,'result':'success'}
+        return {'model_name':model_name,'model_type':model_type,'input_features':model_features,'result':'success'}
     # Run the predictions
     def post(self):
         global model
@@ -317,6 +351,7 @@ class predictionAndKPIs(Resource):
         global graph
         global model_type
         global model_scalers
+        global model_info
 
         predictParser = reqparse.RequestParser()
         predictParser.add_argument('communityarea')
@@ -378,26 +413,57 @@ class reloadModel(Resource):
     def get(self):
         # Reload the model
         global model
+        global model_name
         global model_features
         global graph
         global model_type
         global model_scalers
+        global model_info
 
         loadParser = reqparse.RequestParser()
-        loadParser.add_argument('modeltype')
+        loadParser.add_argument('modelname')
         args = loadParser.parse_args()
 
-        if args['modeltype'] is None:
-            return {'message':'Missing modeltype argument. Supported types: keras, xgboost.','result':'failed'}
+        if args['modelname'] is None:
+            return {'message':'Missing modelname argument.','result':'failed'}
 
         try:
-            if args['modeltype'] == 'keras':
-                model,model_features,graph,model_type,model_scalers = load_keras_model()
-            else:
-                model,model_features,graph,model_type,model_scalers = load_xgb_model()
-            return{'message':'Model reloaded succesfully.','error':None,'result': 'success'}
+            model,model_name,model_features,graph,model_type,model_scalers,model_info = load_model(json.loads(args['modelname']))
+            return{'message':'Model loaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
+
+class getAvailableModels(Resource):
+    def get(self):
+        # Look into S3 Models folder for trained models
+        models = []
+        try:
+            s3 = s3fs.S3FileSystem(anon=False)
+            items = s3.ls('w210policedata/models',detail=True)
+            for item in items:
+                if item['StorageClass'] == 'DIRECTORY':
+                    modelinfo_file = item['Key']+'/modelinfo.pickle'
+                    with s3.open(modelinfo_file, "rb") as pickle_file:
+                        model_info = pickle.load(pickle_file)
+                        pickle_file.close()
+                    models.append(model_info)
+        except Exception as e:
+            return{'message':'Failure reading model data from S3.','error':str(e),'result':'failed'}
+        return {'models':models,'result':'success'}
+
+class getAvailableFeatures(Resource):
+    def get(self):
+        try:
+            #file = './data/OneHotEncodedDataset.parquet'                     # This line to read from local disk
+            features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'  # This line to read from S3
+            #training_data = pd.read_csv(file,sep=',', error_bad_lines=False, dtype='unicode')
+            s3 = s3fs.S3FileSystem(anon=False)
+            with s3.open(features_file, "rb") as json_file:
+                available_features = pickle.load(json_file)
+                json_file.close()
+        except Exception as e:
+            return{'message':'Failure reading available features data from S3.','error':str(e),'result':'failed'}
+        return {'features':available_features,'result':'success'}
 
 api.add_resource(checkService, '/')
 api.add_resource(trainModel, '/trainModel')
@@ -406,6 +472,8 @@ api.add_resource(killTrainer, '/killTrainer')
 api.add_resource(predict, '/predict')
 api.add_resource(predictionAndKPIs, '/predictionAndKPIs')
 api.add_resource(reloadModel, '/reloadModel')
+api.add_resource(getAvailableModels, '/getAvailableModels')
+api.add_resource(getAvailableFeatures, '/getAvailableFeatures')
 
 if __name__ == '__main__':
     application.run(debug=True, port=60000)
