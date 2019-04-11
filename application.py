@@ -106,6 +106,9 @@ def load_xgb_model(modelname):
     s3fs.S3FileSystem.connect_timeout = 5184000  # one day
     s3 = s3fs.S3FileSystem(anon=False)
     model_file = 'w210policedata/models/'+modelname+'/xgbregressor_model.joblib'
+    features_file = 'w210policedata/models/'+modelname+'/xgbregressor_features.pickle'
+    scaler_file = 'w210policedata/models/'+modelname+'/xgbregressor_scaler.pickle'
+    modelinfo_file = 'w210policedata/models/'+modelname+'/modelinfo.pickle'
     temp_file = tempfile.NamedTemporaryFile(delete=True)
     s3.get(model_file,temp_file.name)
     model = joblib.load(temp_file.name)
@@ -113,9 +116,13 @@ def load_xgb_model(modelname):
     temp_file.close()
     model_features = model.get_booster().feature_names
     model_type = 'xgboost'
-    model_scalers = None
-    model_info = None
-    model_name=None
+    with s3.open(scaler_file, "rb") as pickle_file:
+        model_scalers = pickle.load(pickle_file)
+        pickle_file.close()
+    with s3.open(modelinfo_file, "rb") as pickle_file:
+        model_info = pickle.load(pickle_file)
+        pickle_file.close()
+    model_name = model_info['modelname']
     return model,model_name,model_features,graph,model_type,model_scalers,model_info
 
 def load_model(modelname):
@@ -326,7 +333,9 @@ class predict(Resource):
                 prediction = model.predict(df)
                 prediction = model_scalers['y'].inverse_transform(prediction)
         else:
+            df = model_scalers['x'].transform(df)
             prediction = model.predict(df)
+            prediction = model_scalers['y'].inverse_transform(prediction)
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
@@ -384,7 +393,9 @@ class predictionAndKPIs(Resource):
                 prediction = model.predict(df)
                 prediction = model_scalers['y'].inverse_transform(prediction)
         else:
+            df = model_scalers['x'].transform(df)
             prediction = model.predict(df)
+            prediction = model_scalers['y'].inverse_transform(prediction)
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))

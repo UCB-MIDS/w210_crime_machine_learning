@@ -85,7 +85,7 @@ for f in available_features:
         columns.append(f['column'])
         selected_features.append(f)
 
-print('[' + str(datetime.now()) + '] Training model '+modelname+' with features:')
+print('[' + str(datetime.now()) + '] Training Keras Deep Learning model '+modelname+' with features:')
 for feature in featurelist:
     print('[' + str(datetime.now()) + ']    * '+feature)
 sys.stdout.flush()
