@@ -114,7 +114,10 @@ def load_xgb_model(modelname):
     model = joblib.load(temp_file.name)
     graph = None
     temp_file.close()
-    model_features = model.get_booster().feature_names
+    with s3.open(features_file, "rb") as pickle_file:
+        model_features = pickle.load(pickle_file)
+        pickle_file.close()
+    #model.get_booster().feature_names = model_features
     model_type = 'xgboost'
     with s3.open(scaler_file, "rb") as pickle_file:
         model_scalers = pickle.load(pickle_file)
@@ -327,6 +330,7 @@ class predict(Resource):
             df = df.append(line, ignore_index=True)
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
+        df = df.filter(items=model_features,axis=1)
         if (model_type == 'keras'):
             df = model_scalers['x'].transform(df)
             with graph.as_default():
@@ -387,6 +391,7 @@ class predictionAndKPIs(Resource):
             df = df.append(line, ignore_index=True)
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
         df.fillna(0,inplace=True)
+        df = df.filter(items=model_features,axis=1)
         if (model_type == 'keras'):
             df = model_scalers['x'].transform(df)
             with graph.as_default():
@@ -400,7 +405,7 @@ class predictionAndKPIs(Resource):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
             else:
-                results[i]['pred'] = int(max(np.round(float(prediction[i])-0.39+0.5),0))
+                results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
 
         # Consolidate into map format and calculate KPIs
         crimeByCommunity = defaultdict(int)

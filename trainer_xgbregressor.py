@@ -141,7 +141,7 @@ sys.stdout.flush()
 try:
     s3 = s3fs.S3FileSystem(anon=False)
     temp_file = tempfile.NamedTemporaryFile(delete=True)
-    model_file = "w210policedata/models/xgbregressor_model.joblib"
+    model_file = "w210policedata/models/"+modelname+"/xgbregressor_model.joblib"
     joblib.dump(model,temp_file.name)
     s3.put(temp_file.name,model_file)
     temp_file.close()
