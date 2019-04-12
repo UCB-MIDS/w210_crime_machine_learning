@@ -335,7 +335,7 @@ class predict(Resource):
         else:
             df = model_scalers['x'].transform(df)
             prediction = model.predict(df)
-            prediction = model_scalers['y'].inverse_transform(prediction)
+            prediction = model_scalers['y'].inverse_transform(prediction.reshape(-1,1))
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
@@ -395,7 +395,7 @@ class predictionAndKPIs(Resource):
         else:
             df = model_scalers['x'].transform(df)
             prediction = model.predict(df)
-            prediction = model_scalers['y'].inverse_transform(prediction)
+            prediction = model_scalers['y'].inverse_transform(prediction.reshape(-1,1))
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
