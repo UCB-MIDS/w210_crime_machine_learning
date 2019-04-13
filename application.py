@@ -177,6 +177,8 @@ model_type = None
 graph = None
 model_scalers = None
 model_info = None
+available_features = None
+features_data = None
 
 ### Load default model configuration from configuration file
 s3fs.S3FileSystem.read_timeout = 5184000  # one day
@@ -201,6 +203,16 @@ except:
 default_model = config['GENERAL']['DefaultModel']
 
 model,model_name,model_features,graph,model_type,model_scalers,model_info = load_model(default_model)
+try:
+    features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'
+    s3 = s3fs.S3FileSystem(anon=False)
+    with s3.open(features_file, "rb") as json_file:
+        available_features = pickle.load(json_file)
+        json_file.close()
+    features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
+    features_data = pd.read_parquet(features_file)
+except Exception as e:
+    print('Failure reading additional feature data from S3.')
 
 # Services to implement:
 #   * Train
@@ -304,6 +316,8 @@ class predict(Resource):
         global model_type
         global model_scalers
         global model_info
+        global available_features
+        global features_data
 
         predictParser = reqparse.RequestParser()
         predictParser.add_argument('communityarea')
@@ -317,18 +331,27 @@ class predict(Resource):
         for arg in args:
             if args[arg] is None:
                 if (arg == 'communityarea'):
-                    args[arg] = [x.replace('communityArea_','') for x in model_features if x.startswith('communityArea_')]
+                    args[arg] = [i for i in range(1,78)]
                 else:
                     return {'message':'Missing input '+arg,'result':'failed'}
             else:
                 args[arg] = json.loads(args[arg])
-        df = pd.DataFrame(columns=model_features)
+        df = pd.DataFrame()
         crime_types = [x for x in model_features if x.startswith('primaryType_')]
         results = []
         for ca,wy,wd,hd,ct in itertools.product(args['communityarea'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
-            line = {'communityArea_'+str(ca):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
+            line = {'Community Area':str(ca),'Week of the Year':str(wy),'Day of the Week':str(wd),
+                    'Period of the Day':str(hd),'Crime Type':ct.replace('primaryType_','')}
             df = df.append(line, ignore_index=True)
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
+        df = pd.merge(df, features_data, on='Community Area')
+        for feat in available_features:
+            if feat['onehot-encoded']:
+                df = pd.concat([df,pd.get_dummies(df[feat['feature']], prefix=feat['column'])],axis=1)
+                df.drop(columns=[feat['feature']], inplace=True)
+        for feat in model_features:
+            if feat not in df:
+                df[feat] = 0
         df.fillna(0,inplace=True)
         df = df.filter(items=model_features,axis=1)
         if (model_type == 'keras'):
@@ -340,6 +363,7 @@ class predict(Resource):
             df = model_scalers['x'].transform(df)
             prediction = model.predict(df)
             prediction = model_scalers['y'].inverse_transform(prediction.reshape(-1,1))
+        print(len(prediction))
         for i in range(len(prediction)):
             if model_type == 'keras':
                 results[i]['pred'] = int(max(np.round(float(prediction[i][0])-0.39+0.5),0))
@@ -378,18 +402,27 @@ class predictionAndKPIs(Resource):
         for arg in args:
             if args[arg] is None:
                 if (arg == 'communityarea'):
-                    args[arg] = [x.replace('communityArea_','') for x in model_features if x.startswith('communityArea_')]
+                    args[arg] = [i for i in range(1,78)]
                 else:
                     return {'message':'Missing input '+arg,'result':'failed'}
             else:
                 args[arg] = json.loads(args[arg])
-        df = pd.DataFrame(columns=model_features)
+        df = pd.DataFrame()
         crime_types = [x for x in model_features if x.startswith('primaryType_')]
         results = []
         for ca,wy,wd,hd,ct in itertools.product(args['communityarea'],args['weekyear'],args['weekday'],args['hourday'],crime_types):
-            line = {'communityArea_'+str(ca):1,'weekYear_'+str(wy):1,'weekDay_'+str(wd):1,'hourDay_'+str(hd):1,ct:1}
+            line = {'Community Area':str(ca),'Week of the Year':str(wy),'Day of the Week':str(wd),
+                    'Period of the Day':str(hd),'Crime Type':ct.replace('primaryType_','')}
             df = df.append(line, ignore_index=True)
             results.append({'communityArea':str(ca),'weekYear':wy,'weekDay':wd,'hourDay':hd,'primaryType':ct.replace('primaryType_',''),'pred':None})
+        df = pd.merge(df, features_data, on='Community Area')
+        for feat in available_features:
+            if feat['onehot-encoded']:
+                df = pd.concat([df,pd.get_dummies(df[feat['feature']], prefix=feat['column'])],axis=1)
+                df.drop(columns=[feat['feature']], inplace=True)
+        for feat in model_features:
+            if feat not in df:
+                df[feat] = 0
         df.fillna(0,inplace=True)
         df = df.filter(items=model_features,axis=1)
         if (model_type == 'keras'):
@@ -435,6 +468,8 @@ class reloadModel(Resource):
         global model_type
         global model_scalers
         global model_info
+        global features_data
+        global available_features
 
         loadParser = reqparse.RequestParser()
         loadParser.add_argument('modelname')
@@ -445,6 +480,13 @@ class reloadModel(Resource):
 
         try:
             model,model_name,model_features,graph,model_type,model_scalers,model_info = load_model(json.loads(args['modelname']))
+            features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'
+            s3 = s3fs.S3FileSystem(anon=False)
+            with s3.open(features_file, "rb") as json_file:
+                available_features = pickle.load(json_file)
+                json_file.close()
+            features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
+            features_data = pd.read_parquet(features_file)
             return{'message':'Model loaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
@@ -469,6 +511,7 @@ class getAvailableModels(Resource):
 
 class getAvailableFeatures(Resource):
     def get(self):
+        global available_features
         try:
             #file = './data/OneHotEncodedDataset.parquet'                     # This line to read from local disk
             features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'  # This line to read from S3
@@ -477,6 +520,8 @@ class getAvailableFeatures(Resource):
             with s3.open(features_file, "rb") as json_file:
                 available_features = pickle.load(json_file)
                 json_file.close()
+            features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
+            features_data = pd.read_parquet(features_file)
         except Exception as e:
             return{'message':'Failure reading available features data from S3.','error':str(e),'result':'failed'}
         return {'features':available_features,'result':'success'}
