@@ -213,6 +213,7 @@ try:
     # features_data = pd.read_parquet(features_file)
     features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
     features_data = pd.read_csv(features_file)
+    features_data['Community Area'] = features_data['Community Area'].map(str)
 except Exception as e:
     print('Failure reading additional feature data from S3.')
 
@@ -491,6 +492,7 @@ class reloadModel(Resource):
             #features_data = pd.read_parquet(features_file)
             features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
             features_data = pd.read_csv(features_file)
+            features_data['Community Area'] = features_data['Community Area'].map(str)
             return{'message':'Model loaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
@@ -529,6 +531,7 @@ class getAvailableFeatures(Resource):
             #features_data = pd.read_parquet(features_file)
             features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
             features_data = pd.read_csv(features_file)
+            features_data['Community Area'] = features_data['Community Area'].map(str)
         except Exception as e:
             return{'message':'Failure reading available features data from S3.','error':str(e),'result':'failed'}
         return {'features':available_features,'result':'success'}
