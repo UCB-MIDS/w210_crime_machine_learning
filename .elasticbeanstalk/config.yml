@@ -1,8 +1,11 @@
 branch-defaults:
   master:
-    environment: W210CrimeMachineLearning-env
+    environment: W210CrimeMachineLearning-Prod
     group_suffix: null
 environment-defaults:
+  W210CrimeMachineLearning-Prod:
+    branch: null
+    repository: null
   W210CrimeMachineLearning-env:
     branch: null
     repository: null
