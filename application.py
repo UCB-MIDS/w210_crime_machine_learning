@@ -13,6 +13,7 @@ import joblib
 import json
 import itertools
 import configparser
+from datetime import datetime
 from scipy.stats import t
 from collections import defaultdict
 from flask import Flask
@@ -252,7 +253,7 @@ class trainModel(Resource):
             return {'message':'Missing features argument.','result':'failed'}
 
         if (runningProcess is not None):
-            if (runningProcess.poll() is not None):
+            if (runningProcess.poll() is None):
                 return {'message':'There is a model training job currently running.','pid':runningProcess.pid,'result': 'failed'}
         try:
             if json.loads(args['modeltype']) == 'keras':
@@ -298,6 +299,7 @@ class killTrainer(Resource):
             returncode = runningProcess.poll()
             if (returncode is None):
                 runningProcess.kill()
+                processStdout.append('[' + str(datetime.now()) + '] Model training killed.')
                 return {'message':'Kill signal sent to model trainer.','result':'success'}
         return {'message':'No model training running','result': 'failed'}
 
