@@ -209,8 +209,8 @@ try:
     with s3.open(features_file, "rb") as json_file:
         available_features = pickle.load(json_file)
         json_file.close()
-#    features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
-#    features_data = pd.read_parquet(features_file)
+    # features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
+    # features_data = pd.read_parquet(features_file)
     features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
     features_data = pd.read_csv(features_file)
 except Exception as e:
@@ -489,6 +489,8 @@ class reloadModel(Resource):
                 json_file.close()
             #features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
             #features_data = pd.read_parquet(features_file)
+            features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
+            features_data = pd.read_csv(features_file)
             return{'message':'Model loaded succesfully.','error':None,'result': 'success'}
         except Exception as e:
             return{'message':'Model load failed.','error':str(e),'result': 'failed'}
@@ -525,6 +527,8 @@ class getAvailableFeatures(Resource):
                 json_file.close()
             #features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
             #features_data = pd.read_parquet(features_file)
+            features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
+            features_data = pd.read_csv(features_file)
         except Exception as e:
             return{'message':'Failure reading available features data from S3.','error':str(e),'result':'failed'}
         return {'features':available_features,'result':'success'}
