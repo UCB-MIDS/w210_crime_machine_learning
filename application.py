@@ -211,6 +211,8 @@ try:
         json_file.close()
 #    features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
 #    features_data = pd.read_parquet(features_file)
+    features_file = 's3://w210policedata/datasets/AdditionalFeatures.csv'
+    features_data = pd.read_csv(features_file)
 except Exception as e:
     print('Failure reading additional feature data from S3.')
 
