@@ -203,16 +203,16 @@ except:
 default_model = config['GENERAL']['DefaultModel']
 
 model,model_name,model_features,graph,model_type,model_scalers,model_info = load_model(default_model)
-try:
-    features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'
-    s3 = s3fs.S3FileSystem(anon=False)
-    with s3.open(features_file, "rb") as json_file:
-        available_features = pickle.load(json_file)
-        json_file.close()
-    features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
-    features_data = pd.read_parquet(features_file)
-except Exception as e:
-    print('Failure reading additional feature data from S3.')
+#try:
+#    features_file = 's3://w210policedata/datasets/AvailableFeatures.pickle'
+#    s3 = s3fs.S3FileSystem(anon=False)
+#    with s3.open(features_file, "rb") as json_file:
+#        available_features = pickle.load(json_file)
+#        json_file.close()
+#    features_file = 's3://w210policedata/datasets/AdditionalFeatures.parquet'
+#    features_data = pd.read_parquet(features_file)
+#except Exception as e:
+#    print('Failure reading additional feature data from S3.')
 
 # Services to implement:
 #   * Train
